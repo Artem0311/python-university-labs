@@ -221,3 +221,6 @@ __marimo__/
 
 # Local VS Code settings
 .vscode/
+
+# Findex corpus
+data/
