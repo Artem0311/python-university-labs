@@ -5,7 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from findex.index import Index, index_corpus
+from findex.corpus import iter_documents
+from findex.index import (
+    ExecutorKind,
+    Index,
+    build_index,
+    build_partial,
+    index_corpus,
+    merge,
+)
 
 
 def doc_id_for(index: Index, filename: str) -> int:
@@ -118,3 +126,90 @@ def test_index_mapping_access(sample_index: Index) -> None:
     assert sample_index["python"] == sample_index.postings["python"]
     assert "python" in sample_index
     assert "missing" not in sample_index
+
+
+@pytest.mark.parametrize("with_positions", [False, True])
+def test_partial_merge_matches_original(
+    sample_corpus: Path,
+    with_positions: bool,
+) -> None:
+    """Partial index and merge must match the original index."""
+
+    paths = list(sample_corpus.rglob("*.txt"))
+
+    original = build_index(
+        iter_documents(sample_corpus),
+        with_positions=with_positions,
+    )
+
+    partial = build_partial(
+        paths,
+        root=sample_corpus,
+        start_doc_id=0,
+        with_positions=with_positions,
+    )
+
+    merged = merge([partial])
+
+    assert merged == original
+    assert merged.num_docs == 3
+
+
+@pytest.mark.parametrize("with_positions", [False, True])
+def test_merge_two_chunks_matches_original(
+    sample_corpus: Path,
+    with_positions: bool,
+) -> None:
+    """Two partial indexes must match the original index."""
+    paths = list(sample_corpus.rglob("*.txt"))
+    cut = len(paths) // 2
+
+    partials = [
+        build_partial(
+            paths[:cut],
+            root=sample_corpus,
+            start_doc_id=0,
+            with_positions=with_positions,
+        ),
+        build_partial(
+            paths[cut:],
+            root=sample_corpus,
+            start_doc_id=cut,
+            with_positions=with_positions,
+        ),
+    ]
+
+    merged = merge(partials)
+    original = build_index(
+        iter_documents(sample_corpus),
+        with_positions=with_positions,
+    )
+
+    assert merged == original
+    assert merged.num_docs == 3
+    assert len(set(merged.doc_meta)) == 3
+
+
+@pytest.mark.parametrize("executor", ["serial", "threads", "processes"])
+@pytest.mark.parametrize("with_positions", [False, True])
+def test_parallel_index_matches_original(
+    sample_corpus: Path,
+    executor: ExecutorKind,
+    with_positions: bool,
+) -> None:
+    """All executors must produce identical indexes."""
+    original = index_corpus(
+        sample_corpus,
+        with_positions=with_positions,
+    )
+
+    parallel = index_corpus(
+        sample_corpus,
+        with_positions=with_positions,
+        workers=2,
+        executor=executor,
+    )
+
+    assert parallel == original
+    assert parallel.num_docs == 3
+    assert len(set(parallel.doc_meta)) == 3

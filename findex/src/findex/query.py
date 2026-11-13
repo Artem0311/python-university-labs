@@ -1,6 +1,8 @@
 
 """Recursive-descent parser for Boolean and phrase queries."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 
