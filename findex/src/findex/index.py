@@ -7,11 +7,12 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cached_property
+from itertools import islice
 from pathlib import Path
 from time import perf_counter
 from typing import Literal
 
-from findex.corpus import Document
+from findex.corpus import Document, iter_documents
 from findex.timing import timed
 from findex.tokenize import tokenize
 
@@ -305,7 +306,7 @@ def index_corpus(
     """Build a corpus index using serial, thread, or process execution."""
     root = Path(root)
 
-    if not root.is_dir():
+    if not root.is_dir() and not (root.is_file() and root.suffix == ".jsonl"):
         raise NotADirectoryError(
             f"Corpus directory does not exist: {root}"
         )
@@ -318,6 +319,20 @@ def index_corpus(
 
     if limit is not None and limit < 1:
         raise ValueError("limit must be at least 1")
+
+    if root.is_file():
+        documents = iter_documents(root)
+        if limit is not None:
+            documents = islice(documents, limit)
+        return _merge_with_metrics(
+            [
+                _build_from_documents(
+                    enumerate(documents),
+                    with_positions=with_positions,
+                )
+            ],
+            metrics,
+        )
 
     paths = [
         path

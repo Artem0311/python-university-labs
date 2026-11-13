@@ -8,7 +8,7 @@ from collections import Counter
 from contextlib import redirect_stdout
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Never
+from typing import Annotated, Never, TextIO
 
 import typer
 from rich.console import Console
@@ -116,8 +116,11 @@ def index_command(
     ] = ExecutorName.processes,
 ) -> None:
     """Build an inverted index with the selected executor."""
-    if not corpus.is_dir():
-        _fail(f"Corpus directory not found: {corpus}")
+    if not (
+        corpus.is_dir()
+        or (corpus.is_file() and corpus.suffix == ".jsonl")
+    ):
+        _fail(f"Corpus not found: {corpus}")
 
     executor_kind: ExecutorKind = executor.value
 
@@ -312,3 +315,94 @@ def stats_command(
         popular.add_row(term, str(count))
 
     output.print(popular)
+
+
+@app.command("crawl")
+def crawl_command(
+    url: Annotated[str, typer.Argument(help="Starting URL allowed by robots.txt.")],
+    out: Annotated[
+        Path, typer.Option("--out", help="Output JSONL file.")
+    ] = Path("data/crawl.jsonl"),
+    max_pages: Annotated[int, typer.Option("--max-pages", min=1)] = 200,
+    concurrency: Annotated[int, typer.Option("--concurrency", min=1)] = 5,
+    per_host: Annotated[int, typer.Option("--per-host", min=1)] = 2,
+    min_delay: Annotated[float, typer.Option("--min-delay", min=0.0)] = 0.2,
+) -> None:
+    """Collect permitted web pages into JSONL for later indexing."""
+    import asyncio
+    from resource import RUSAGE_SELF, getrusage
+    from time import perf_counter
+
+    from rich.live import Live
+
+    from findex.crawler.crawl import CrawlStats, crawl
+    from findex.crawler.fetch import FetchResult
+
+    stats = CrawlStats()
+    started = perf_counter()
+
+    def status() -> Text:
+        elapsed = max(perf_counter() - started, 0.001)
+        return Text(
+            f"Pages: {stats.pages} | "
+            f"Pages/s: {stats.pages / elapsed:.2f} | "
+            f"In flight: {stats.in_flight} | "
+            f"Errors: {stats.errors} | "
+            f"Queue: {stats.queue_depth}"
+        )
+
+    async def run(stream: TextIO, log: TextIO) -> None:
+        def record(result: FetchResult) -> None:
+            log.write(
+                f"url={result.url} status={result.status} "
+                f"bytes={len(result.content)} "
+                f"elapsed={result.elapsed:.3f}s "
+                f"error={result.error or '-'}\n"
+            )
+
+        with Live(
+            get_renderable=status,
+            console=diagnostics,
+            refresh_per_second=4,
+            transient=True,
+        ):
+            async for page in crawl(
+                url,
+                max_pages=max_pages,
+                concurrency=concurrency,
+                per_host=per_host,
+                min_delay=min_delay,
+                stats=stats,
+                on_fetch=record,
+            ):
+                stream.write(
+                    json.dumps(
+                        {
+                            "url": page.url,
+                            "title": page.title,
+                            "text": page.text,
+                            "fetched_at": page.fetched_at,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with (
+            out.open("w", encoding="utf-8") as stream,
+            Path("crawl.log").open("w", encoding="utf-8") as log,
+        ):
+            asyncio.run(run(stream, log))
+    except (OSError, ValueError) as exc:
+        _fail(str(exc))
+
+    elapsed = perf_counter() - started
+    peak_mb = getrusage(RUSAGE_SELF).ru_maxrss / 1024 / 1024
+    output.print(
+        f"Pages: {stats.pages}; wall time: {elapsed:.2f}s; "
+        f"pages/s: {stats.pages / max(elapsed, 0.001):.2f}; "
+        f"errors: {stats.errors}; peak RSS: {peak_mb:.1f} MiB"
+    )
+    output.print(f"JSONL: {out}; log: crawl.log")
