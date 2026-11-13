@@ -1,10 +1,12 @@
-from pathlib import Path
 
 """Boolean and ranked search over an inverted index."""
 
+import logging
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from heapq import nlargest
+from pathlib import Path
+from typing import Literal
 
 from findex.index import Index
 from findex.query import And, Not, Or, Phrase, Query, Term, parse
@@ -12,6 +14,8 @@ from findex.ranking import BM25, Scorer
 from findex.snippet import make_snippet
 from findex.timing import timed
 from findex.tokenize import tokenize
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, order=True)
@@ -87,7 +91,7 @@ def _merge_not(left: list[int], right: list[int]) -> list[int]:
 def search_index(
     index: Index,
     query: str,
-    engine: str = "merge",
+    engine: Literal["merge", "set"] = "merge",
 ) -> list[int]:
     """Legacy Boolean search from Lab 02."""
     if engine not in {"merge", "set"}:
@@ -179,7 +183,8 @@ def _cached_matching_ids(index: Index, query: str) -> set[int]:
         if cached.cache_info().hits > previous_hits
         else "miss"
     )
-    print(f"[cache] {status}: {query!r}")
+
+    logger.debug("[cache] %s: %r", status, query)
 
     return set(result)
 
@@ -257,7 +262,7 @@ def search(
 
     top_results = nlargest(k, results)
     terms = tuple(dict.fromkeys(_positive_terms(tree)))
-    enriched = []
+    enriched: list[SearchResult] = []
 
     for result in top_results:
         document_path = Path(corpus_root) / result.path
@@ -277,7 +282,6 @@ def main() -> None:
     """Search a saved index from the command line."""
     import argparse
     import tracemalloc
-    from pathlib import Path
     from time import perf_counter
 
     from findex.store import load_index

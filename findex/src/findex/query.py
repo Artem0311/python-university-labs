@@ -172,8 +172,10 @@ class _Parser:
     def parse_or(self) -> Query:
         node = self.parse_and()
 
-        while self.peek() is not None:
-            if self.peek().upper() != "OR":
+        while True:
+            token = self.peek()
+
+            if token is None or token.upper() != "OR":
                 break
 
             self.take()

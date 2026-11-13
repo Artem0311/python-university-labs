@@ -3,7 +3,7 @@
 
 import json
 import pickle
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -55,7 +55,7 @@ def save_index(index: Index, path: str | Path) -> None:
 
 
 @contextmanager
-def open_index(path: str | Path) -> Iterator[Index]:
+def open_index(path: str | Path) -> Generator[Index]:
     """Open an index and safely close its file."""
     path = Path(path)
 

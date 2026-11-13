@@ -1,9 +1,12 @@
 
 """Timing decorator for index operations."""
 
+import logging
 from collections.abc import Callable
 from functools import wraps
 from time import perf_counter
+
+logger = logging.getLogger(__name__)
 
 
 def timed[**P, R](func: Callable[P, R]) -> Callable[P, R]:
@@ -17,6 +20,10 @@ def timed[**P, R](func: Callable[P, R]) -> Callable[P, R]:
             return func(*args, **kwargs)
         finally:
             elapsed = perf_counter() - started
-            print(f"[timed] {func.__name__}: {elapsed:.6f} s")
+            logger.debug(
+                "[timed] %s: %.6f s",
+                func.__name__,
+                elapsed,
+            )
 
     return wrapper

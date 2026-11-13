@@ -28,6 +28,11 @@ class DocMeta:
     title: str
 
 
+def _empty_positions() -> dict[str, dict[int, tuple[int, ...]]]:
+    """Create a correctly typed empty positions dictionary."""
+    return {}
+
+
 @dataclass
 class Index(Mapping[str, list[Posting]]):
     """An inverted index with Python mapping behavior."""
@@ -36,7 +41,7 @@ class Index(Mapping[str, list[Posting]]):
     doc_lengths: dict[int, int]
     doc_meta: dict[int, DocMeta]
     positions: dict[str, dict[int, tuple[int, ...]]] = field(
-        default_factory=dict
+        default_factory=_empty_positions
     )
 
     def __len__(self) -> int:
@@ -72,7 +77,7 @@ class Index(Mapping[str, list[Posting]]):
         """Return the number of documents containing a term."""
         return len(self.postings.get(term, []))
 
-    def __getstate__(self) -> dict:
+    def __getstate__(self) -> dict[str, object]:
         """Exclude runtime caches from saved pickle indexes."""
         return {
             "postings": self.postings,
@@ -81,7 +86,10 @@ class Index(Mapping[str, list[Posting]]):
             "positions": self.positions,
         }
 
-    def __setstate__(self, state: dict | tuple) -> None:
+    def __setstate__(
+        self,
+        state: dict[str, object] | tuple[object, dict[str, object]],
+    ) -> None:
         """Support old Lab 02 indexes without positions."""
         if isinstance(state, tuple):
             _, slot_values = state
