@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>findex — Пошук документів</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <a class="brand" href="/">findex<span>.</span></a>
+      <p>Пошукова система документів</p>
+    </header>
+
+    {% if document %}
+      <a class="back" href="/">← До пошуку</a>
+      <article class="panel">
+        <h1>{{ document.title }}</h1>
+        <pre class="document">{{ document.text }}</pre>
+      </article>
+    {% else %}
+      <section class="intro">
+        <h1>Знайдіть потрібну інформацію</h1>
+        <p>Пошук за вмістом проіндексованих документів.</p>
+      </section>
+
+      <form action="/" method="get" class="search-form">
+        <input type="search" name="q" value="{{ q }}"
+               placeholder="Введіть пошуковий запит..."
+               maxlength="200" required autofocus>
+        <button type="submit">Знайти</button>
+      </form>
+
+      {% if q.strip() %}
+        <section class="results">
+          <p class="summary">Знайдено документів: {{ total }}</p>
+
+          {% for result in results %}
+            <article class="result">
+              <a href="/doc/{{ result.doc_id }}">
+                <h2>{{ result.title }}</h2>
+              </a>
+              <span class="score">
+                Релевантність: {{ "%.3f"|format(result.score) }}
+              </span>
+              <p class="snippet">{{ result.snippet }}</p>
+            </article>
+          {% else %}
+            <p>За вашим запитом нічого не знайдено.</p>
+          {% endfor %}
+
+          {% if total_pages > 1 %}
+            <nav class="pagination">
+              {% if page > 1 %}
+                <a href="/?{{ ('q=' ~ (q|urlencode) ~ '&page=' ~ (page - 1)) }}">← Назад</a>
+              {% endif %}
+              <span>Сторінка {{ page }} з {{ total_pages }}</span>
+              {% if page < total_pages %}
+                <a href="/?{{ ('q=' ~ (q|urlencode) ~ '&page=' ~ (page + 1)) }}">Далі →</a>
+              {% endif %}
+            </nav>
+          {% endif %}
+        </section>
+      {% endif %}
+    {% endif %}
+
+    <footer>findex · Python · FastAPI</footer>
+  </main>
+</body>
+</html>

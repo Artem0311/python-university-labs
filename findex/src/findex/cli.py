@@ -406,3 +406,25 @@ def crawl_command(
         f"errors: {stats.errors}; peak RSS: {peak_mb:.1f} MiB"
     )
     output.print(f"JSONL: {out}; log: crawl.log")
+
+
+@app.command("serve")
+def serve_command(
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1, max=65535),
+    ] = 8000,
+    workers: Annotated[
+        int,
+        typer.Option("--workers", min=1),
+    ] = 1,
+) -> None:
+    """Start the findex HTTP server."""
+    import uvicorn
+
+    uvicorn.run(
+        "findex.web:app",
+        host="0.0.0.0",
+        port=port,
+        workers=workers,
+    )
