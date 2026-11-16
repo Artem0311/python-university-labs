@@ -715,6 +715,15 @@ PYTHONASYNCIODEBUG=1 uv run findex crawl https://docs.python.org/3/ --max-pages 
 
 ## Лабораторна робота №8 — Профілювання та NumPy
 
+### Демонстраційні матеріали
+
+![Пошук findex](docs/findex_search_demo.gif)
+
+[Відеоогляд findex](docs/findex_demo_uk.mp4)
+
+Відео є ілюстрованим оглядом, а не записом реального інтерфейсу.
+
+
 Використано cProfile, py-spy і Scalene. Реалізовано NumPy int32, векторні BM25 і TF-IDF, вибір top-k через np.argpartition.
 
 ### Порівняння скорерів
