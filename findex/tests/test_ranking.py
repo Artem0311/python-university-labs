@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from findex.index import Index, Posting
+from findex.query import parse
 from findex.ranking import BM25, Scorer, TfIdf
 from findex.search import search
 
@@ -95,3 +96,42 @@ def test_ranked_search_order(
     assert len(results) == 2
     assert results[0].path == "a.txt"
     assert results[0].score >= results[1].score
+
+
+@pytest.mark.parametrize(
+    ("query", "terms"),
+    [
+        ("python", ("python",)),
+        ("python OR code", ("python", "code")),
+        ("python AND code", ("python", "code")),
+    ],
+)
+def test_numpy_ranking_matches_previous(
+    sample_index: Index,
+    sample_corpus: Path,
+    scorer: Scorer,
+    query: str,
+    terms: tuple[str, ...],
+) -> None:
+    matching = parse(query).evaluate(sample_index)
+    scores = {
+        doc_id: sum(
+            scorer.score(term, posting, sample_index)
+            for term in terms
+            for posting in sample_index.postings.get(term, [])
+            if posting.doc_id == doc_id
+        )
+        for doc_id in matching
+    }
+    expected = sorted(
+        scores,
+        key=lambda doc_id: (-scores[doc_id], doc_id),
+    )
+    actual = search(
+        sample_index,
+        query,
+        scorer=scorer,
+        k=3,
+        corpus_root=sample_corpus,
+    )
+    assert [result.doc_id for result in actual] == expected

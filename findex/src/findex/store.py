@@ -6,6 +6,10 @@ import pickle
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
+
+import numpy as np
+from numpy.typing import NDArray
 
 from findex.index import DocMeta, Index, Posting
 from findex.timing import timed
@@ -112,3 +116,65 @@ def load_index(path: str | Path) -> Index:
     """Load a saved index without leaving a file handle open."""
     with open_index(path) as index:
         return index
+
+
+def save_gap_memmap(index: Index, directory: str | Path) -> None:
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    gaps_parts: list[NDArray[np.int32]] = []
+    tf_parts: list[NDArray[np.int32]] = []
+    offsets: dict[str, tuple[int, int]] = {}
+    position = 0
+
+    for term, (doc_ids, tfs) in sorted(index.numpy_postings.items()):
+        order = np.argsort(doc_ids)
+        sorted_ids = doc_ids[order]
+        gaps_parts.append(np.diff(sorted_ids, prepend=np.int32(0)))
+        tf_parts.append(tfs[order])
+        offsets[term] = (position, position + len(doc_ids))
+        position += len(doc_ids)
+
+    gaps = (
+        np.concatenate(gaps_parts)
+        if gaps_parts else np.empty(0, dtype=np.int32)
+    )
+    tfs = (
+        np.concatenate(tf_parts)
+        if tf_parts else np.empty(0, dtype=np.int32)
+    )
+
+    max_gap = int(np.max(gaps, initial=0))
+    max_tf = int(np.max(tfs, initial=0))
+    gap_dtype = np.uint8 if max_gap <= 255 else (
+        np.uint16 if max_gap <= 65535 else np.uint32
+    )
+    tf_dtype = np.uint8 if max_tf <= 255 else (
+        np.uint16 if max_tf <= 65535 else np.uint32
+    )
+
+    np.save(directory / "gaps.npy", gaps.astype(gap_dtype))
+    np.save(directory / "tfs.npy", tfs.astype(tf_dtype))
+    (directory / "terms.json").write_text(
+        json.dumps(offsets, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def load_gap_memmap(
+    directory: str | Path,
+) -> dict[str, tuple[NDArray[np.int32], NDArray[np.int32]]]:
+    directory = Path(directory)
+    gaps = np.load(directory / "gaps.npy", mmap_mode="r")
+    tfs = np.load(directory / "tfs.npy", mmap_mode="r")
+    offsets = cast(
+        dict[str, list[int]],
+        json.loads((directory / "terms.json").read_text(encoding="utf-8")),
+    )
+
+    return {
+        term: (
+            np.cumsum(gaps[start:end], dtype=np.int32),
+            np.asarray(tfs[start:end], dtype=np.int32),
+        )
+        for term, (start, end) in offsets.items()
+    }

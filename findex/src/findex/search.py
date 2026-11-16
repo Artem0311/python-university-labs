@@ -8,9 +8,11 @@ from heapq import nlargest
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
+
 from findex.index import Index
 from findex.query import And, Not, Or, Phrase, Query, Term, parse
-from findex.ranking import BM25, Scorer
+from findex.ranking import BM25, Scorer, TfIdf
 from findex.snippet import make_snippet
 from findex.timing import timed
 from findex.tokenize import tokenize
@@ -234,33 +236,74 @@ def search(
     if not matching_ids:
         return []
 
-    scores = {
-        doc_id: 0.0
-        for doc_id in sorted(matching_ids)
-    }
-
     terms = dict.fromkeys(_positive_terms(tree))
 
-    for term in terms:
-        for posting in index.postings.get(term, []):
-            if posting.doc_id in scores:
-                scores[posting.doc_id] += scorer.score(
-                    term,
-                    posting,
-                    index,
-                )
+    if isinstance(scorer, (BM25, TfIdf)):
+        scores_array = np.zeros(len(index.numpy_lengths), dtype=np.float64)
+        eligible = np.zeros(len(scores_array), dtype=np.bool_)
+        eligible[list(matching_ids)] = True
 
-    results = [
-        SearchResult(
-            score=score,
-            doc_id=doc_id,
-            path=index.doc_meta[doc_id].path,
-            title=index.doc_meta[doc_id].title,
+        for term in terms:
+            arrays = index.numpy_postings.get(term)
+            if arrays is None:
+                continue
+
+            doc_ids, tfs = arrays
+            mask = eligible[doc_ids]
+            selected = doc_ids[mask]
+            scores_array[selected] += scorer.score_array(
+                term, selected, tfs[mask], index
+            )
+
+        candidate_ids = np.fromiter(
+            sorted(matching_ids),
+            dtype=np.int32,
+            count=len(matching_ids),
         )
-        for doc_id, score in scores.items()
-    ]
+        candidate_scores = scores_array[candidate_ids]
+        count = min(k, len(candidate_ids))
+        boundary = len(candidate_ids) - count
+        threshold = candidate_scores[
+            np.argpartition(candidate_scores, boundary)[boundary]
+        ]
 
-    top_results = nlargest(k, results)
+        top_ids = sorted(
+            (
+                int(doc_id)
+                for doc_id in candidate_ids[candidate_scores >= threshold]
+            ),
+            key=lambda doc_id: (-float(scores_array[doc_id]), doc_id),
+        )[:count]
+
+        top_results = [
+            SearchResult(
+                score=float(scores_array[doc_id]),
+                doc_id=doc_id,
+                path=index.doc_meta[doc_id].path,
+                title=index.doc_meta[doc_id].title,
+            )
+            for doc_id in top_ids
+        ]
+    else:
+        scores = {doc_id: 0.0 for doc_id in sorted(matching_ids)}
+
+        for term in terms:
+            for posting in index.postings.get(term, []):
+                if posting.doc_id in scores:
+                    scores[posting.doc_id] += scorer.score(
+                        term, posting, index
+                    )
+
+        results = [
+            SearchResult(
+                score=score,
+                doc_id=doc_id,
+                path=index.doc_meta[doc_id].path,
+                title=index.doc_meta[doc_id].title,
+            )
+            for doc_id, score in scores.items()
+        ]
+        top_results = nlargest(k, results)
     terms = tuple(dict.fromkeys(_positive_terms(tree)))
     enriched: list[SearchResult] = []
 

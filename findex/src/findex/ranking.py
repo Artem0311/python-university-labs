@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from math import log, sqrt
 from typing import Protocol
 
+import numpy as np
+from numpy.typing import NDArray
+
 from findex.index import Index, Posting
 
 
@@ -41,6 +44,18 @@ class TfIdf:
         doc_length = max(1, index.doc_lengths[posting.doc_id])
 
         return tf * idf / sqrt(doc_length)
+
+    def score_array(
+        self,
+        term: str,
+        doc_ids: NDArray[np.int32],
+        tfs: NDArray[np.int32],
+        index: Index,
+    ) -> NDArray[np.float64]:
+        idf = log((index.num_docs + 1) / (index.df(term) + 1)) + 1.0
+        lengths = np.maximum(index.numpy_lengths[doc_ids], 1)
+        values = (1.0 + np.log(np.maximum(tfs, 1))) * idf / np.sqrt(lengths)
+        return np.asarray(np.where(tfs > 0, values, 0.0), dtype=np.float64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,3 +94,22 @@ class BM25:
         )
 
         return idf * tf_weight
+
+    def score_array(
+        self,
+        term: str,
+        doc_ids: NDArray[np.int32],
+        tfs: NDArray[np.int32],
+        index: Index,
+    ) -> NDArray[np.float64]:
+        df = index.df(term)
+        idf = log(1.0 + (index.num_docs - df + 0.5) / (df + 0.5))
+        avg_length = max(index.avg_doc_length, 1.0)
+        lengths = index.numpy_lengths[doc_ids]
+        normalization = self.k1 * (
+            1.0 - self.b + self.b * lengths / avg_length
+        )
+        values = idf * (
+            tfs * (self.k1 + 1.0) / (tfs + normalization)
+        )
+        return np.asarray(values, dtype=np.float64)

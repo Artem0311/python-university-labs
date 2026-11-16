@@ -12,6 +12,9 @@ from pathlib import Path
 from time import perf_counter
 from typing import Literal
 
+import numpy as np
+from numpy.typing import NDArray
+
 from findex.corpus import Document, iter_documents
 from findex.timing import timed
 from findex.tokenize import tokenize
@@ -59,6 +62,36 @@ class Index(Mapping[str, list[Posting]]):
     positions: dict[str, dict[int, tuple[int, ...]]] = field(
         default_factory=_empty_positions
     )
+
+    numpy_postings: dict[str, tuple[NDArray[np.int32], NDArray[np.int32]]] = field(
+        init=False, repr=False, compare=False
+    )
+    numpy_lengths: NDArray[np.int32] = field(
+        init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        size = max(self.doc_meta, default=-1) + 1
+        self.numpy_lengths = np.zeros(size, dtype=np.int32)
+
+        for doc_id, length in self.doc_lengths.items():
+            self.numpy_lengths[doc_id] = length
+
+        self.numpy_postings = {
+            term: (
+                np.fromiter(
+                    (p.doc_id for p in entries),
+                    dtype=np.int32,
+                    count=len(entries),
+                ),
+                np.fromiter(
+                    (p.tf for p in entries),
+                    dtype=np.int32,
+                    count=len(entries),
+                ),
+            )
+            for term, entries in self.postings.items()
+        }
 
     def __len__(self) -> int:
         return len(self.postings)
@@ -114,6 +147,7 @@ class Index(Mapping[str, list[Posting]]):
             self.__dict__.update(state)
 
         self.__dict__.setdefault("positions", {})
+        self.__post_init__()
 
 
 def _build_from_documents(
