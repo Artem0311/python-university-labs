@@ -45,7 +45,7 @@ jobs:
 
       - name: Check benchmark regressions
         run: |
-          if [ -d .benchmarks ]; then
+          if find .benchmarks -type f -name '0001_*.json' 2>/dev/null | grep -q .; then
             uv run --locked pytest -q tests/test_benchmark.py --benchmark-only --benchmark-compare=0001 --benchmark-compare-fail=min:100%
           else
             uv run --locked pytest -q tests/test_benchmark.py --benchmark-only --benchmark-save=baseline
